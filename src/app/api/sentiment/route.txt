@@ -1,0 +1,57 @@
+// src/app/api/sentiment/route.js
+import { NextResponse } from "next/server";
+import yahooFinance from "yahoo-finance2";
+import axios from "axios";
+import fs from "fs";
+import path from "path";
+
+export const runtime = "nodejs";
+const CACHE_FILE = path.join(process.cwd(), "sentimentCache.json");
+
+export async function GET() {
+  // 1) 캐시 읽기
+  let cache = null;
+  try {
+    const raw = await fs.promises.readFile(CACHE_FILE, "utf-8");
+    cache = JSON.parse(raw);
+  } catch {
+    // 파일 없거나 파싱 오류 시 무시
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  if (cache?.timestamp?.startsWith(today)) {
+    // 오늘자 캐시가 있으면 재사용
+    return NextResponse.json(cache.data);
+  }
+
+  // 2) 오늘 데이터 새로 수집
+  try {
+    // VIX (공포지수)
+    const vixSummary = await yahooFinance.quoteSummary("^VIX", { modules: ["price"] });
+    const vix = vixSummary.price?.regularMarketPrice ?? null;
+
+    // Fear & Greed Index
+    const fngRes = await axios.get("https://api.alternative.me/fng/?limit=1&format=json");
+    const fng = fngRes.data.data?.[0] ?? {};
+    const fngValue = fng.value ?? null;
+    const fngText = fng.value_classification ?? "";
+
+    // 옵션 풋/콜 비율, Short Interest (추후 API 교체)
+    const putCallRatio = null;
+    const shortInterest = null;
+
+    const data = { vix, fngValue, fngText, putCallRatio, shortInterest };
+
+    // 3) 캐시에 저장
+    const toCache = { timestamp: new Date().toISOString(), data };
+    await fs.promises.writeFile(CACHE_FILE, JSON.stringify(toCache), "utf-8");
+
+    return NextResponse.json(data);
+  } catch (e) {
+    console.error("❌ /api/sentiment 에러:", e);
+    return NextResponse.json(
+      { error: "시장 심리 지표를 불러오는 데 실패했습니다." },
+      { status: 500 }
+    );
+  }
+}

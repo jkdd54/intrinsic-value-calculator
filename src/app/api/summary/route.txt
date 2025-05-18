@@ -1,0 +1,105 @@
+// src/app/api/summary/route.js
+import { NextResponse } from "next/server";
+import OpenAI from "openai";
+import yahooFinance from "yahoo-finance2";
+import fs from "fs";
+import path from "path";
+
+// (Node.js 런타임을 사용하도록 명시—이 줄을 추가하세요)
+export const runtime = "nodejs";
+
+// ➀ 분류별 티커 정의
+const TICKER_GROUPS = {
+  "🇺🇸 미국증시": { 다우: "^DJI", "S&P500": "^GSPC", 나스닥: "^IXIC" },
+  "🌍 글로벌지수": { 니케이225: "^N225", FTSE100: "^FTSE", 코스피: "^KS11" },
+  "💱 환율": { "USD/KRW": "KRW=X", "USD/JPY": "JPY=X", "EUR/USD": "EURUSD=X" },
+  "🛢️ 원자재": { WTI유: "CL=F", 금: "GC=F" },
+  "₿ 디지털자산": { 비트코인: "BTC-USD", 이더리움: "ETH-USD" },
+};
+
+// ➁ OpenAI 인스턴스
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+// ➂ 캐시 파일 경로
+const CACHE_FILE = path.join(process.cwd(), "summaryCache.json");
+
+export async function GET() {
+  // 1) 캐시 불러오기
+  let cache = null;
+  try {
+    const raw = await fs.promises.readFile(CACHE_FILE, "utf-8");
+    cache = JSON.parse(raw);
+  } catch {
+    // 파일 없거나 파싱 실패 시 넘어감
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  if (cache && cache.timestamp.slice(0, 10) === today) {
+    return NextResponse.json({ data: cache.data, summaries: cache.summaries });
+  }
+
+  // 2) 오늘 데이터 새로 수집
+  const data = {};
+  const summaries = {};
+
+  for (const [groupName, tickers] of Object.entries(TICKER_GROUPS)) {
+    // 2-1) 등락률 수집
+    const groupData = {};
+    for (const [label, symbol] of Object.entries(tickers)) {
+      try {
+        const quote = await yahooFinance.quote(symbol);
+        const ch = quote.regularMarketChangePercent;
+        groupData[label] =
+          typeof ch === "number" ? parseFloat(ch.toFixed(2)) : null;
+      } catch {
+        groupData[label] = null;
+      }
+    }
+    data[groupName] = groupData;
+
+    // 2-2) GPT 요약
+    const valid = Object.entries(groupData).filter(([, pct]) => pct != null);
+    if (valid.length === 0) {
+      summaries[groupName] = "데이터가 없어 요약할 수 없습니다.";
+    } else {
+      const lines = valid.map(([l, pct]) => `${l}: ${pct}%`).join("\n");
+      const prompt = `${groupName} 지수 변동률:\n${lines}\n\n위 내용을 전문가 시각으로 간결하게 해석해줘.`;
+      try {
+        const resp = await openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [
+            { role: "system", content: "당신은 경제 애널리스트입니다." },
+            { role: "user", content: prompt },
+          ],
+          temperature: 0.7,
+        });
+        summaries[groupName] = resp.choices[0].message.content.trim();
+      } catch (e) {
+        if (e.code === "insufficient_quota") {
+          summaries[groupName] = "요약 불가: 쿼터가 부족합니다.";
+        } else {
+          console.error("GPT 요약 에러:", e);
+          summaries[groupName] = "요약 실패: 잠시 후 다시 시도해주세요.";
+        }
+      }
+    }
+  }
+
+  // 3) 캐시에 저장
+  try {
+    const toCache = {
+      timestamp: new Date().toISOString(),
+      data,
+      summaries,
+    };
+    await fs.promises.writeFile(
+      CACHE_FILE,
+      JSON.stringify(toCache),
+      "utf-8"
+    );
+  } catch (e) {
+    console.warn("캐시 파일 쓰기 실패:", e);
+  }
+
+  return NextResponse.json({ data, summaries });
+}

@@ -1,0 +1,58 @@
+// src/app/api/news/route.js
+import { NextResponse } from "next/server";
+import Parser from "rss-parser";
+import fs from "fs";
+import path from "path";
+
+export const runtime = "nodejs";
+const parser = new Parser();
+const CACHE_FILE = path.join(process.cwd(), "newsCache.json");
+
+export async function GET() {
+  // 1) 캐시 읽기
+  let cache = null;
+  try {
+    const raw = await fs.promises.readFile(CACHE_FILE, "utf-8");
+    cache = JSON.parse(raw);
+  } catch {
+    // 파일이 없거나 파싱 오류 시 무시
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  if (cache?.timestamp?.startsWith(today)) {
+    // 오늘 치 캐시된 헤드라인 재활용
+    return NextResponse.json({ headlines: cache.headlines });
+  }
+
+  // 2) RSS 파싱하여 최신 경제 뉴스 5건 가져오기
+  try {
+    const feed = await parser.parseURL(
+      "https://news.google.com/rss/search?" +
+        "q=%EC%A0%9C%EA%B3%84&" + // q=경제
+        "hl=ko&gl=KR&ceid=KR:ko"
+    );
+    const headlines = feed.items.slice(0, 5).map((item) => ({
+      title: item.title,
+      url: item.link,
+    }));
+
+    // 3) 캐시에 저장
+    const toCache = {
+      timestamp: new Date().toISOString(),
+      headlines,
+    };
+    await fs.promises.writeFile(
+      CACHE_FILE,
+      JSON.stringify(toCache),
+      "utf-8"
+    );
+
+    return NextResponse.json({ headlines });
+  } catch (e) {
+    console.error("❌ /api/news 에러:", e);
+    return NextResponse.json(
+      { error: "경제 뉴스 헤드라인을 불러오는 데 실패했습니다." },
+      { status: 500 }
+    );
+  }
+}

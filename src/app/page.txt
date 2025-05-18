@@ -250,36 +250,35 @@ function MarketSentiment() {
 
   const { vix, fngValue, fngText, putCallRatio, shortInterest } = data;
 
-  return (
-    <List dense>
-      <ListItem>
-        <ListItemText
-          primary={`VIX (공포지수): ${vix != null ? vix.toFixed(2) : "N/A"}`}
-        />
-      </ListItem>
-      <ListItem>
-        <ListItemText
-          primary={`Fear & Greed Index: ${fngValue != null ? fngValue : "N/A"}`}
-          secondary={fngText ? `분류: ${fngText}` : null}
-        />
-      </ListItem>
-      <ListItem>
-        <ListItemText
-          primary={`Put/Call Ratio: ${
-            putCallRatio != null ? putCallRatio : "미구현"
-          }`}
-        />
-      </ListItem>
-      <ListItem>
-        <ListItemText
-          primary={`Short Interest: ${
-            shortInterest != null ? shortInterest : "미구현"
-          }`}
-        />
-      </ListItem>
-    </List>
-  );
-}
+return (
+  <List dense>
+    <ListItem>
+      <ListItemText
+        primary={`유동 비율: ${ratios.currentRatio.toFixed(2)}`}
+        secondary={`업종 평균: ${industryAverages.currentRatio.toFixed(2)}`}
+      />
+    </ListItem>
+    <ListItem>
+      <ListItemText
+        primary={`부채 비율: ${ratios.debtToEquity.toFixed(2)}`}
+        secondary={`업종 평균: ${industryAverages.debtToEquity.toFixed(2)}`}
+      />
+    </ListItem>
+    <ListItem>
+      <ListItemText
+        primary={`ROA: ${ratios.returnOnAssets.toFixed(2)}%`}
+        secondary={`업종 평균: ${industryAverages.returnOnAssets.toFixed(2)}%`}
+      />
+    </ListItem>
+    <ListItem>
+      <ListItemText
+        primary={`ROE: ${ratios.returnOnEquity.toFixed(2)}%`}
+        secondary={`업종 평균: ${industryAverages.returnOnEquity.toFixed(2)}%`}
+      />
+    </ListItem>
+  </List>
+);
+
 
 
 // 섹터명 매핑 (영어 -> 한글)
